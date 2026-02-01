@@ -1,0 +1,6 @@
+*.txt
+*.json
+
+posters/
+__pycache__/
+.venv/
