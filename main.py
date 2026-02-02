@@ -7,7 +7,7 @@ import datetime
 from PySide6.QtWidgets import QApplication, QMainWindow, QFileDialog, QMenu, QTreeWidget, QTreeWidgetItem, QStyledItemDelegate, QHeaderView, QListWidget
 from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QColor
 from ui.ui_main import Ui_MainWindow
-from PySide6.QtCore import Qt, QUrl, QSize, QByteArray
+from PySide6.QtCore import Qt, QUrl, QSize, QByteArray, QThread, Signal
 from PySide6.QtWidgets import QWidget
 from ui.ui_preferences import Ui_Preferences
 from PySide6.QtWidgets import QDialog 
@@ -29,10 +29,14 @@ class LibraryManager(QMainWindow):
             os.makedirs(self.img_dir)
 
         header = self.ui.treeWidget.header()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.resizeSection(0, 250)
-        header.resizeSection(1, 400) 
-        header.setStretchLastSection(True)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Interactive) 
+        self.ui.searchResults.setColumnWidth(1, 150)
+        
+        header = self.ui.searchResults.header()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.Interactive) 
+        self.ui.searchResults.setColumnWidth(1, 150)
 
         self.ui.fileExplorerListWidget.itemDoubleClicked.connect(self.FE_item_open)
 
@@ -51,23 +55,70 @@ class LibraryManager(QMainWindow):
         self.ui.fileExplorerListWidget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.ui.fileExplorerListWidget.customContextMenuRequested.connect(self.FE_show_context_menu)
 
-        self.ui.treeWidget.itemClicked.connect(self.render_seriesInfo)
+        self.ui.treeWidget.itemClicked.connect(lambda: self.render_seriesInfo("treeWidget"))
+        self.ui.searchResults.itemClicked.connect(lambda: self.render_seriesInfo("searchResults"))
         self.ui.treeWidget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.ui.treeWidget.customContextMenuRequested.connect(self.MF_show_context_menu)
         self.ui.treeWidget.sortItems(0, Qt.AscendingOrder)
+
+        self.ui.SearchPushButton.clicked.connect(self.start_search)
         
+        
+        
+        self.ui.searchResults.setIconSize(QSize(96, 96))
+        self.ui.searchResults.setWordWrap(True)
         
 
         self.check_api_key()
-
-        cache = self.search_titles_in_db("",[])
-        self.show_titles(cache)
+        try:
+            with open("dbcache.json", "r", encoding="utf-8") as f:
+                cache = json.load(f)
+            self.show_titles(cache)
+        except Exception as e:
+            print(f"Failed to load cache on startup: {e}")
         self.ui.scanProgressBar.setValue(0)
 
-    def render_seriesInfo(self):
+
+    def start_search(self):
+        title = self.ui.searchLineEdit.text().strip()
+        token = self.get_token()
+        
+        self.ui.searchResults.clear()
+        
+        self.worker = SearchWorker(title, token, self)
+        self.worker.result_ready.connect(self.add_result_to_ui)
+        self.worker.start()
+
+    def add_result_to_ui(self, name, info, pixmap):
+        title_item = QTreeWidgetItem([name])
+        
+        if pixmap:
+            title_item.setIcon(0, QIcon(pixmap))
+        title_item.setText(1, info)
+        self.ui.searchResults.addTopLevelItem(title_item)
+
+            
+
+        
+
+        
+
+
+
+
+
+    def render_seriesInfo(self, widget: str):
         print("----------------------render_seriesInfo----------------------")
-        item = self.ui.treeWidget.currentItem()
+        if widget == "treeWidget":
+            item = self.ui.treeWidget.currentItem()
+            self.ui.searchResults.setCurrentItem(None)
+        elif widget == "searchResults":
+            item = self.ui.searchResults.currentItem()
+            self.ui.treeWidget.setCurrentItem(None)
+        else:
+            return
         item_info_text = item.text(1)
+
 
         icon = item.icon(0)
         pixmap = icon.pixmap(icon.actualSize(QSize(680, 1000)))
@@ -118,14 +169,25 @@ class LibraryManager(QMainWindow):
 
         self.ui.scanProgressBar.setValue(20)
         titles.sort()
-        cache = self.search_titles_in_db(token, titles)
+
+        self.cache_thread = ScanCacheWorker(titles, token, self)
+        self.cache_thread.progress_changed.connect(self.ui.scanProgressBar.setValue)
+        self.cache_thread.finished.connect(self.on_cache_finished)
+        self.cache_thread.start()
         
+        
+        
+
+        
+
+        
+
+
+    def on_cache_finished(self, cache):
+        print("Caching and searching finished")
         self.ui.scanProgressBar.setValue(90)
-
         self.show_titles(cache)
-
         self.ui.scanProgressBar.setValue(100)
-
 
     def show_titles(self, cache: dict):
         print("----------------------show_titles----------------------")
@@ -205,81 +267,7 @@ class LibraryManager(QMainWindow):
         pixmap.fill(QColor("blue"))
         return QIcon(pixmap)
 
-    def search_titles_in_db(self, token: str, titles: list) -> dict | None:
-        print("----------------------search_titles_in_db----------------------")
-        path = "dbcache.json"
-        
-        
-        cache = {}
-        if os.path.exists(path) and os.path.getsize(path) > 0:
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    cache = json.load(f)
-            except json.JSONDecodeError:
-                print("Cache file is corrupted")
-
-        headers = {"Authorization": f"Bearer {token}"}
-        FAKE_WORDS = {"abridged", "parody", "fan", "dub", "re-cut", "fandub"}
-
-        for i, title in enumerate(titles):
-            if title in cache and cache[title].get("tvdb_id"):
-                print(f"From cache: {title}")
-            else:
-                print(f"Searching in TVDB: {title}")
-                params = {
-                    "query": title,
-                    "type": "series",
-                    "limit": 5 
-                }
-
-                try:
-                    response = requests.get("https://api4.thetvdb.com/v4/search", headers=headers, params=params, timeout=10)
-                    results = response.json()
-                    
-                    best_match = None
-                    
-                    if results.get("data"):
-                        for candidate in results["data"]:
-                            name_low = candidate.get("name", "").lower()
-                            
-                            is_fake = any(fake in name_low for fake in FAKE_WORDS)
-                            
-                            if not is_fake:
-                                best_match = candidate
-                                break
-                        
-                        if not best_match:
-                            best_match = results["data"][0]
-
-                    if best_match:
-                        cache[title] = {
-                            "tvdb_id": best_match["tvdb_id"],
-                            "last_updated": datetime.datetime.now().isoformat(),
-                            "data": best_match
-                        }
-                    else:
-                        cache[title] = {
-                            "tvdb_id": None,
-                            "last_updated": datetime.datetime.now().isoformat(),
-                            "data": None
-                        }
-
-                except Exception as e:
-                    print(f"Request error for {title}: {e}")
-
-            progress = 20 + int(((i + 1) / len(titles)) * 70)
-            self.ui.scanProgressBar.setValue(progress)
-            QApplication.processEvents()
-            
-            time.sleep(0.2) 
-
-        try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(cache, f, indent=4, ensure_ascii=False)
-        except Exception as e:
-            print(f"Failed to save dbcache.json: {e}")
-
-        return cache
+    
 
             
     def scan_library(self) -> list | None:
@@ -399,7 +387,7 @@ class LibraryManager(QMainWindow):
         self.pref_win.show()
         self.check_api_key()
 
-    def check_api_key(self) -> str:
+    def check_api_key(self) -> bool:
         print("----------------------check_api_key----------------------")
         if not os.path.exists("api_key.txt"):
             self.prompt_for_key()
@@ -410,14 +398,16 @@ class LibraryManager(QMainWindow):
                     self.prompt_for_key()
                 else:
                     print("API key found")
-                    return(key)
+                    return True
 
-    def prompt_for_key(self):
+    def prompt_for_key(self) -> bool:
         print("----------------------prompt_for_key----------------------")
         if self.api_win.exec(): 
             print("API key found and saved")
+            return True
         else:
             print("API key wasn't entered")
+            return False
 
     def request_api_key(self):
         print("----------------------request_api_key----------------------")
@@ -425,10 +415,17 @@ class LibraryManager(QMainWindow):
         if result == QDialog.Accepted:
             print("User updated their API key")
 
-    def update_tvdb_token(self, api_key: str) -> str | None:
+    def update_tvdb_token(self) -> bool:
         print("----------------------update_tvdb_token----------------------")
         url = "https://api4.thetvdb.com/v4/login"
         
+        try:
+            with open("api_key.txt", "r") as f:
+                api_key = f.read()
+        except Exception as e:
+            print(f"Failed to get API key from file: {e}")
+            return False
+
         payload = {
             "apikey": api_key
         }
@@ -444,19 +441,38 @@ class LibraryManager(QMainWindow):
                     with open("token.txt", "w") as f:
                         f.write(token)
                         print("Тoken successfully saved")
-                        return token
+                        return True
                 except Exception as e:
                     print(f"Failed to save token: {e}")
-                    return token
+                    return False
                         
             else:
                 print(f"Auth error: {response.status_code}")
                 print(response.text)
-                return None
+                return False
                 
         except Exception as e:
             print(f"Failed to contact the server: {e}")
+            return False
+        
+    def get_api_key(self) -> str | None:
+        try:
+            with open("api_key.txt", "r") as f:
+                api_key = f.read()
+                return api_key
+        except Exception as e:
+            print(f"Failed to get API key from file: {e}")
             return None
+        
+    def get_token(self) -> str | None:
+        try:
+            with open("token.txt", "r") as f:
+                token = f.read()
+                return token
+        except Exception as e:
+            print(f"Failed to get token from file: {e}")
+            return None
+
 
     def update_files(self):
         print("----------------------update_files----------------------")
@@ -578,6 +594,118 @@ class APIKeyWindow(QDialog):
             self.ui.APIkeyLineEdit.setText("")
             self.ui.APIkeyLineEdit.setPlaceholderText("Enter your API key")
 
+
+class SearchWorker(QThread):
+    result_ready = Signal(str, str, object) 
+
+    def __init__(self, title, token, parent_class):
+        super().__init__()
+        self.title = title
+        self.token = token
+        self.parent_class = parent_class
+
+    def run(self):
+        headers = {"Authorization": f"Bearer {self.token}", "Accept-Language": "eng"}
+        params = {"query": self.title, "type": "series", "limit": 10}
+        
+        try:
+            r = requests.get("https://api4.thetvdb.com/v4/search", headers=headers, params=params)
+            results = r.json()
+            if results.get("data"):
+                for result in results["data"]:
+                    name = result.get("translations", {}).get("eng", result.get("name", ""))
+                    tvdb_id = result.get("id", "").strip("series-")
+                    url = result.get("image_url")
+                    
+                    pixmap = self.parent_class.load_poster(url, tvdb_id)
+                    
+                    status = result.get("status", "Unknown")
+                    year = result.get("year", "N/A")
+                    info = f"{year}\n{status}\nTVDB id: {tvdb_id}"
+                    
+
+                    self.result_ready.emit(name, info, pixmap)
+        except Exception as e:
+            print(f"Thread error: {e}")
+
+class ScanCacheWorker(QThread):
+    progress_changed = Signal(int)
+    finished = Signal(dict)
+    def __init__(self, titles, token, parent_class):
+        super().__init__()
+        self.titles = titles
+        self.token = token
+        self.parent_class = parent_class
+        
+
+    def run(self):
+        print("----------------------search_titles_in_db----------------------")
+        path = "dbcache.json"
+        
+        
+        cache = {}
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    cache = json.load(f)
+            except json.JSONDecodeError:
+                print("Cache file is corrupted")
+
+        headers = {"Authorization": f"Bearer {self.token}"}
+        FAKE_WORDS = {"abridged", "parody", "fan", "dub", "re-cut", "fandub"}
+
+        for i, title in enumerate(self.titles):
+            if title in cache and cache[title].get("tvdb_id"):
+                print(f"From cache: {title}")
+            else:
+                print(f"Searching in TVDB: {title}")
+                params = {
+                    "query": title,
+                    "type": "series",
+                    "limit": 5 
+                }
+
+                try:
+                    response = requests.get("https://api4.thetvdb.com/v4/search", headers=headers, params=params, timeout=10)
+                    results = response.json()
+                    
+                    best_match = None
+                    
+                    if results.get("data"):
+                        for candidate in results["data"]:
+                            name_low = candidate.get("name", "").lower()
+                            
+                            is_fake = any(fake in name_low for fake in FAKE_WORDS)
+                            
+                            if not is_fake:
+                                best_match = candidate
+                                break
+                        
+                        if not best_match:
+                            best_match = results["data"][0]
+
+                    if best_match:
+                        cache[title] = {
+                            "tvdb_id": best_match["id"],
+                            "last_updated": datetime.datetime.now().isoformat(),
+                            "data": best_match
+                        }
+                    else:
+                        cache[title] = {
+                            "tvdb_id": None,
+                            "last_updated": datetime.datetime.now().isoformat(),
+                            "data": None
+                        }
+
+                except Exception as e:
+                    print(f"Request error for {title}: {e}")
+
+            progress = 20 + int(((i + 1) / len(self.titles)) * 70)
+            self.progress_changed.emit(progress)
+            QApplication.processEvents()
+            
+            time.sleep(0.2) 
+        self.finished.emit(cache)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

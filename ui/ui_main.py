@@ -105,10 +105,10 @@ class Ui_MainWindow(object):
         self.searchResults.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.searchResults.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContentsOnFirstShow)
         self.searchResults.setUniformRowHeights(False)
-        self.searchResults.setSortingEnabled(True)
+        self.searchResults.setSortingEnabled(False)
         self.searchResults.setWordWrap(True)
         self.searchResults.setHeaderHidden(False)
-        self.searchResults.header().setProperty(u"showSortIndicator", True)
+        self.searchResults.header().setProperty(u"showSortIndicator", False)
 
         self.verticalLayout.addWidget(self.searchResults)
 
@@ -291,7 +291,7 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_3.addWidget(self.statusBarLabel)
 
-        self.horizontalLayout_3.setStretch(0, 2)
+        self.horizontalLayout_3.setStretch(0, 1)
         self.horizontalLayout_3.setStretch(1, 3)
         self.horizontalLayout_3.setStretch(2, 1)
 
