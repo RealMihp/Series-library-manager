@@ -111,45 +111,56 @@ class LibraryManager(QMainWindow):
         self.ui.searchResults.addTopLevelItem(title_item)
 
             
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
 
-        
-
-        
-
-
-
-
+        if hasattr(self, 'current_widget') and self.current_widget:
+            self.render_seriesInfo(self.current_widget)
 
     def render_seriesInfo(self, widget: str):
-        print("----------------------render_seriesInfo----------------------")
-        if widget == "treeWidget":
-            item = self.ui.treeWidget.currentItem()
-            self.ui.searchResults.setCurrentItem(None)
-        elif widget == "searchResults":
-            item = self.ui.searchResults.currentItem()
-            self.ui.treeWidget.setCurrentItem(None)
-        else:
+        target_view = self.ui.treeWidget if widget == "treeWidget" else self.ui.searchResults
+        other_view = self.ui.searchResults if widget == "treeWidget" else self.ui.treeWidget
+        
+        item = target_view.currentItem()
+        
+        if not item:
             return
+
+        other_view.blockSignals(True)
+        other_view.setCurrentItem(None)
+        other_view.blockSignals(False)
+        self.current_widget = widget
+
+        full_title = item.text(0)
         item_info_text = item.text(1)
+
+        lines = item_info_text.split("\n")
+        year = lines[0] if len(lines) > 0 else "N/A"
+        status = lines[1] if len(lines) > 1 else "N/A"
+        
+        tvdb_id = "N/A"
+        if len(lines) > 2 and "TVDB id: " in lines[2]:
+            tvdb_id = lines[2].split("TVDB id: ")[1]
 
 
         icon = item.icon(0)
-        pixmap = icon.pixmap(icon.actualSize(QSize(680, 1000)))
-        scaled_pixmap = pixmap.scaled(
-            self.ui.posterLabel.size(), 
-            Qt.KeepAspectRatio, 
-            Qt.SmoothTransformation
-        )
+        if not icon.isNull():
+            pixmap = icon.pixmap(icon.actualSize(QSize(680, 1000)))
+            
+            scaled_pixmap = pixmap.scaled(
+                self.ui.posterLabel.size(), 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
+            self.ui.posterLabel.setAlignment(Qt.AlignCenter)
+            self.ui.posterLabel.setScaledContents(False)
+            self.ui.posterLabel.setPixmap(scaled_pixmap)
         
-        tvdb_id = str(str(item_info_text.split("\n")[2]).split("TVDB id: ")[1])
-        year = str(item_info_text.split("\n")[0])
-        status = str(item_info_text.split("\n")[1])
-        self.ui.posterLabel.setPixmap(scaled_pixmap)
-        self.ui.posterLabel.setScaledContents(False)
 
-        self.ui.titleLabel.setText(item.text(0))
+        self.ui.titleLabel.setText(full_title)
         self.ui.yearLabel.setText(year)
         self.ui.statusLabel.setText(status)
+        # self.ui.idLabel.setText(f"TVDB id: {tvdb_id}")
         
 
     def start_scan(self):
