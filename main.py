@@ -186,9 +186,13 @@ class LibraryManager(QMainWindow):
 
     def on_cache_finished(self, cache):
         print("Caching and searching finished")
+        with open(self.cache_path, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False, indent=4)
+        print("Cache saved to file")
         self.ui.scanProgressBar.setValue(90)
         self.show_titles(cache)
         self.ui.scanProgressBar.setValue(100)
+        
 
 
 
@@ -205,13 +209,17 @@ class LibraryManager(QMainWindow):
             shown_titles.add(item.text(0))
 
         for i, title in enumerate(cache):
-
-            if title in shown_titles:
-                continue
-
             tvdb_id = cache[title]["tvdb_id"]
+            
             if tvdb_id is not None:
-                title_item = QTreeWidgetItem([title])
+                tvdb_id = cache[title]["tvdb_id"].strip("series-")
+                title_name = cache[title]["data"]["translations"]["eng"]
+                if title_name in shown_titles:
+                    continue
+
+            
+            if tvdb_id is not None:
+                title_item = QTreeWidgetItem([title_name])
                 
 
                 url = cache[title]["data"]["image_url"]
@@ -645,6 +653,7 @@ class ScanCacheWorker(QThread):
         self.titles = titles
         self.token = token
         self.parent_class = parent_class
+        self.cache_path = os.path.join("data", "dbcache.json")
         
 
     def run(self):
