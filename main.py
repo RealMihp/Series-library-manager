@@ -86,6 +86,7 @@ class LibraryManager(QMainWindow):
         self.ui.scanProgressBar.setValue(0)
 
 
+    # Adding titles
     def start_search(self):
         title = self.ui.searchLineEdit.text().strip()
         token = self.get_token()
@@ -102,19 +103,7 @@ class LibraryManager(QMainWindow):
         self.worker = SearchWorker(title, token, self)
         self.worker.result_ready.connect(self.add_result_to_ui)
         self.worker.start()
-
-    def add_result_to_ui(self, name, info, pixmap):
-        title_item = QTreeWidgetItem([name])
         
-        if pixmap:
-            title_item.setIcon(0, QIcon(pixmap))
-        title_item.setText(1, info)
-        self.ui.searchResults.addTopLevelItem(title_item)
-
-
-    
-
-
     def add_series(self):
         print("----------------------add_series----------------------")
         token = self.get_token()
@@ -176,63 +165,8 @@ class LibraryManager(QMainWindow):
         except Exception as e:
             print(f"Request error: {e}")
             self.label_notify("Network error", "error", 5000)
-        
 
-
-
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-
-        if hasattr(self, 'current_widget') and self.current_widget:
-            self.render_seriesInfo(self.current_widget)
-
-    def render_seriesInfo(self, widget: str):
-        target_view = self.ui.treeWidget if widget == "treeWidget" else self.ui.searchResults
-        other_view = self.ui.searchResults if widget == "treeWidget" else self.ui.treeWidget
-        
-        item = target_view.currentItem()
-        
-        if not item:
-            return
-
-        other_view.blockSignals(True)
-        other_view.setCurrentItem(None)
-        other_view.blockSignals(False)
-        self.current_widget = widget
-
-        full_title = item.text(0)
-        item_info_text = item.text(1)
-
-        lines = item_info_text.split("\n")
-        year = lines[0] if len(lines) > 0 else "N/A"
-        status = lines[1] if len(lines) > 1 else "N/A"
-        
-        tvdb_id = "N/A"
-        if len(lines) > 2 and "TVDB id: " in lines[2]:
-            tvdb_id = lines[2].split("TVDB id: ")[1]
-
-
-        icon = item.icon(0)
-        if not icon.isNull():
-            pixmap = icon.pixmap(icon.actualSize(QSize(680, 1000)))
             
-            scaled_pixmap = pixmap.scaled(
-                self.ui.posterLabel.size(), 
-                Qt.KeepAspectRatio, 
-                Qt.SmoothTransformation
-            )
-            self.ui.posterLabel.setAlignment(Qt.AlignCenter)
-            self.ui.posterLabel.setScaledContents(False)
-            self.ui.posterLabel.setPixmap(scaled_pixmap)
-        
-
-        self.ui.titleLabel.setText(full_title)
-        self.ui.yearLabel.setText(year)
-        self.ui.statusLabel.setText(status)
-        # self.ui.idLabel.setText(f"TVDB id: {tvdb_id}")
-        
-
     def start_scan(self):
         print("----------------------start_scan----------------------")
         key = self.check_api_key()
@@ -251,7 +185,7 @@ class LibraryManager(QMainWindow):
                 print("Failed to get token")
                 self.show_messagebox("critical", "Failed to get token.\nCheck your API key or internet connection", "Error")
                 return
-       
+        
         self.ui.scanProgressBar.setValue(10)
 
         titles = self.scan_library()
@@ -279,94 +213,8 @@ class LibraryManager(QMainWindow):
         self.ui.scanProgressBar.setValue(90)
         self.show_titles(cache)
         self.ui.scanProgressBar.setValue(100)
-        
 
 
-
-    def show_titles(self, cache: dict):
-        print("----------------------show_titles----------------------")
-        self.ui.treeWidget.setColumnCount(2)
-        self.ui.treeWidget.setHeaderLabels(["Title", "Info"])
-        self.ui.treeWidget.setIconSize(QSize(96, 96))
-        self.ui.treeWidget.setWordWrap(True)
-
-        shown_titles = set()
-        for i in range(self.ui.treeWidget.topLevelItemCount()):
-            item = self.ui.treeWidget.topLevelItem(i)
-            shown_titles.add(item.text(0))
-
-        for i, title in enumerate(cache):
-            tvdb_id = cache[title]["tvdb_id"]
-            
-            if tvdb_id is not None:
-                tvdb_id = cache[title]["tvdb_id"].strip("series-")
-                title_name = cache[title]["data"]["translations"]["eng"]
-                if title_name in shown_titles:
-                    continue
-
-            
-            if tvdb_id is not None:
-                title_item = QTreeWidgetItem([title_name])
-                
-
-                url = cache[title]["data"]["image_url"]
-                pixmap = self.load_poster(url,tvdb_id)
-                
-                if pixmap:
-                    title_item.setIcon(0, QIcon(pixmap))
-                else:
-                    title_item.setIcon(0, self.create_placeholder_icon())
-
-                status = cache[title]["data"]["status"]
-                year = cache[title]["data"]["year"]
-
-                info_text = f"{year}\n{status}\nTVDB id: {tvdb_id}"
-
-                title_item.setText(1, info_text)
-                self.ui.treeWidget.addTopLevelItem(title_item)
- 
-                progress = 90 + int(((i + 1) / len(cache)) * 10)
-                self.ui.scanProgressBar.setValue(progress)
-                count = self.ui.treeWidget.topLevelItemCount()
-                self.ui.addedSeriesLabel.setText(f"Added series ({count})")
-
-                QApplication.processEvents()
-                
-
-    def load_poster(self, link: str, tvdb_id: str) -> QPixmap | None:
-        print("----------------------load_poster----------------------")
-        file_path = os.path.join(self.posters_path, f"{tvdb_id}.jpg")
-
-        if os.path.exists(file_path):
-            return QPixmap(file_path)
-
-        try:
-            response = requests.get(link, timeout=10)
-            if response.status_code == 200:
-                with open(file_path, "wb") as f:
-                    f.write(response.content)
-                
-                
-                pixmap = QPixmap()
-                pixmap.loadFromData(response.content)
-                return pixmap
-        except Exception as e:
-            print(f"Failed to save picture: {e}")
-        
-        return None
-    
-
-            
-
-    def create_placeholder_icon(self):
-        print("----------------------create_placeholder_icon----------------------")
-        pixmap = QPixmap(50, 70)
-        pixmap.fill(QColor("blue"))
-        return QIcon(pixmap)
-
-    
-
-            
     def scan_library(self) -> list | None:
         print("----------------------scan_library----------------------")
         folder = self.ui.pathLine.text()
@@ -477,14 +325,217 @@ class LibraryManager(QMainWindow):
             print("Directory wasn't found")
             self.label_notify("No such folder", "error", 5000)
             return None
+            
+
+    # Visual
+    def show_titles(self, cache: dict):
+        print("----------------------show_titles----------------------")
+        self.ui.treeWidget.setColumnCount(2)
+        self.ui.treeWidget.setHeaderLabels(["Title", "Info"])
+        self.ui.treeWidget.setIconSize(QSize(96, 96))
+        self.ui.treeWidget.setWordWrap(True)
+
+        shown_titles = set()
+        for i in range(self.ui.treeWidget.topLevelItemCount()):
+            item = self.ui.treeWidget.topLevelItem(i)
+            shown_titles.add(item.text(0))
+
+        for i, title in enumerate(cache):
+            tvdb_id = cache[title]["tvdb_id"]
+            
+            if tvdb_id is not None:
+                tvdb_id = cache[title]["tvdb_id"].strip("series-")
+                title_name = cache[title]["data"]["translations"]["eng"]
+                if title_name in shown_titles:
+                    continue
+
+            
+            if tvdb_id is not None:
+                title_item = QTreeWidgetItem([title_name])
+                
+
+                url = cache[title]["data"]["image_url"]
+                pixmap = self.load_poster(url,tvdb_id)
+                
+                if pixmap:
+                    title_item.setIcon(0, QIcon(pixmap))
+                else:
+                    title_item.setIcon(0, self.create_placeholder_icon())
+
+                status = cache[title]["data"]["status"]
+                year = cache[title]["data"]["year"]
+
+                info_text = f"{year}\n{status}\nTVDB id: {tvdb_id}"
+
+                title_item.setText(1, info_text)
+                self.ui.treeWidget.addTopLevelItem(title_item)
+
+                progress = 90 + int(((i + 1) / len(cache)) * 10)
+                self.ui.scanProgressBar.setValue(progress)
+                count = self.ui.treeWidget.topLevelItemCount()
+                self.ui.addedSeriesLabel.setText(f"Added series ({count})")
+
+                QApplication.processEvents()
+                    
+
+    def load_poster(self, link: str, tvdb_id: str) -> QPixmap | None:
+        print("----------------------load_poster----------------------")
+        file_path = os.path.join(self.posters_path, f"{tvdb_id}.jpg")
+
+        if os.path.exists(file_path):
+            return QPixmap(file_path)
+
+        try:
+            response = requests.get(link, timeout=10)
+            if response.status_code == 200:
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
+                
+                
+                pixmap = QPixmap()
+                pixmap.loadFromData(response.content)
+                return pixmap
+        except Exception as e:
+            print(f"Failed to save picture: {e}")
+        
+        return None
 
 
+            
+
+    def create_placeholder_icon(self):
+        print("----------------------create_placeholder_icon----------------------")
+        pixmap = QPixmap(50, 70)
+        pixmap.fill(QColor("blue"))
+        return QIcon(pixmap)
+
+    def add_result_to_ui(self, name, info, pixmap):
+        title_item = QTreeWidgetItem([name])
+        
+        if pixmap:
+            title_item.setIcon(0, QIcon(pixmap))
+        title_item.setText(1, info)
+        self.ui.searchResults.addTopLevelItem(title_item)
+
+    def render_seriesInfo(self, widget: str):
+        target_view = self.ui.treeWidget if widget == "treeWidget" else self.ui.searchResults
+        other_view = self.ui.searchResults if widget == "treeWidget" else self.ui.treeWidget
+        
+        item = target_view.currentItem()
+        
+        if not item:
+            return
+
+        other_view.blockSignals(True)
+        other_view.setCurrentItem(None)
+        other_view.blockSignals(False)
+        self.current_widget = widget
+
+        full_title = item.text(0)
+        item_info_text = item.text(1)
+
+        lines = item_info_text.split("\n")
+        year = lines[0] if len(lines) > 0 else "N/A"
+        status = lines[1] if len(lines) > 1 else "N/A"
+        
+        tvdb_id = "N/A"
+        if len(lines) > 2 and "TVDB id: " in lines[2]:
+            tvdb_id = lines[2].split("TVDB id: ")[1]
+
+
+        icon = item.icon(0)
+        if not icon.isNull():
+            pixmap = icon.pixmap(icon.actualSize(QSize(680, 1000)))
+            
+            scaled_pixmap = pixmap.scaled(
+                self.ui.posterLabel.size(), 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
+            self.ui.posterLabel.setAlignment(Qt.AlignCenter)
+            self.ui.posterLabel.setScaledContents(False)
+            self.ui.posterLabel.setPixmap(scaled_pixmap)
+        
+
+        self.ui.titleLabel.setText(full_title)
+        self.ui.yearLabel.setText(year)
+        self.ui.statusLabel.setText(status)
+        # self.ui.idLabel.setText(f"TVDB id: {tvdb_id}")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+
+        if hasattr(self, 'current_widget') and self.current_widget:
+            self.render_seriesInfo(self.current_widget)
+
+    def FE_show_context_menu(self, pos):
+        print(f"----------------------FE_show_context_menu----------------------")
+
+        global_pos = self.ui.fileExplorerListWidget.mapToGlobal(pos)
+        menu = QMenu(self)
+        action1 = menu.addAction("Open in explorer")
+        
+
+        action = menu.exec(global_pos)
+        
+        if action == action1:
+            folder_path = self.ui.pathLine.text()
+            if os.path.exists(folder_path):
+
+                os.startfile(folder_path)
+
+    def MF_show_context_menu(self, pos):
+        print(f"----------------------MF_show_context_menu----------------------")
+
+        global_pos = self.ui.treeWidget.mapToGlobal(pos)
+        menu = QMenu(self)
+        action1 = menu.addAction("View on TVDB")
+        action2 = menu.addAction("Remove from series list")
+        
+        action = menu.exec(global_pos)
+        
+        if action == action1:
+            item = self.ui.treeWidget.currentItem()
+            if item:
+                info_text = item.text(1)
+                tvdb_id = str(str(info_text.split("\n")[2]).split("TVDB id: ")[1])
+                url = QUrl(f"https://www.thetvdb.com/search?query={tvdb_id}")
+                QDesktopServices.openUrl(url)
+        elif action == action2:
+            pass
+        
+    def show_messagebox(self, m_type: str, text: str, title: str ="Message"):
+        if m_type.lower() not in ("information", "warning", "critical", "question"):
+            raise ValueError(f"Unknown message type: {m_type}")
+        
+        msg = QMessageBox(self)
+        if m_type == "information":
+            msg.setIcon(QMessageBox.Information)
+        elif m_type == "warning":
+            msg.setIcon(QMessageBox.Warning)
+        elif m_type == "critical":
+            msg.setIcon(QMessageBox.Critical)
+        elif m_type == "question":
+            msg.setIcon(QMessageBox.Question)
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        msg.setWindowTitle(title)
+        msg.setText(text)
+        msg.exec()
+
+    def label_notify(self, text: str, m_type: str = "info", delay: int = 5000):
+        color = "red" if m_type == "error" else "black"
+
+        self.ui.statusBarLabel.setStyleSheet(f"color: {color};")
+        self.ui.statusBarLabel.setText(text)
+
+        QTimer.singleShot(delay, lambda: self.ui.statusBarLabel.setText(""))
 
     def open_preferences(self):
         print("----------------------open_preferences----------------------")
         self.pref_win.show()
         self.check_api_key()
 
+    # API key
     def check_api_key(self) -> bool:
         print("----------------------check_api_key----------------------")
         if not os.path.exists(self.api_key_path):
@@ -513,7 +564,18 @@ class LibraryManager(QMainWindow):
         result = self.api_win.exec() 
         if result == QDialog.Accepted:
             print("User updated their API key")
-
+            
+    def get_api_key(self) -> str | None:
+        print("----------------------get_api_key----------------------")
+        try:
+            with open(self.api_key_path, "r") as f:
+                api_key = f.read()
+                return api_key
+        except Exception as e:
+            print(f"Failed to get API key from file: {e}")
+            return None
+        
+    # Token
     def update_tvdb_token(self) -> bool:
         print("----------------------update_tvdb_token----------------------")
         url = "https://api4.thetvdb.com/v4/login"
@@ -558,16 +620,7 @@ class LibraryManager(QMainWindow):
             print(f"Failed to contact the server: {e}")
             self.label_notify("Failed to contact the server", "error", 5000)
             return False
-        
-    def get_api_key(self) -> str | None:
-        try:
-            with open(self.api_key_path, "r") as f:
-                api_key = f.read()
-                return api_key
-        except Exception as e:
-            print(f"Failed to get API key from file: {e}")
-            return None
-        
+            
     def get_token(self) -> str | None:
         try:
             
@@ -577,11 +630,11 @@ class LibraryManager(QMainWindow):
         except Exception as e:
             print(f"Failed to get token from file: {e}")
             return None
-
-
+        
+    # Files
     def update_files(self):
         print("----------------------update_files----------------------")
-      
+        
         folder = self.ui.pathLine.text()
         if os.path.isdir(folder):
             self.ui.fileExplorerListWidget.clear()
@@ -605,7 +658,6 @@ class LibraryManager(QMainWindow):
         self.ui.pathLine.setText("")
         self.ui.fileExplorerListWidget.clear()
 
-    
     def FE_item_open(self, item):
         print("----------------------FE_item_open----------------------")
         current_item = self.ui.fileExplorerListWidget.currentItem()
@@ -617,70 +669,6 @@ class LibraryManager(QMainWindow):
             full_path = os.path.join(folder_path, file_name)
             
             QDesktopServices.openUrl(QUrl.fromLocalFile(full_path))
-
-    
-    def FE_show_context_menu(self, pos):
-        print(f"----------------------FE_show_context_menu----------------------")
-
-        global_pos = self.ui.fileExplorerListWidget.mapToGlobal(pos)
-        menu = QMenu(self)
-        action1 = menu.addAction("Open in explorer")
-        
-
-        action = menu.exec(global_pos)
-        
-        if action == action1:
-            folder_path = self.ui.pathLine.text()
-            if os.path.exists(folder_path):
-
-                os.startfile(folder_path)
-
-    def MF_show_context_menu(self, pos):
-        print(f"----------------------MF_show_context_menu----------------------")
-
-        global_pos = self.ui.treeWidget.mapToGlobal(pos)
-        menu = QMenu(self)
-        action1 = menu.addAction("View on TVDB")
-        action2 = menu.addAction("Remove from series list")
-        
-        action = menu.exec(global_pos)
-        
-        if action == action1:
-            item = self.ui.treeWidget.currentItem()
-            if item:
-                info_text = item.text(1)
-                tvdb_id = str(str(info_text.split("\n")[2]).split("TVDB id: ")[1])
-                url = QUrl(f"https://www.thetvdb.com/search?query={tvdb_id}")
-                QDesktopServices.openUrl(url)
-        elif action == action2:
-            pass
-    
-    def show_messagebox(self, m_type: str, text: str, title: str ="Message"):
-        if m_type.lower() not in ("information", "warning", "critical", "question"):
-            raise ValueError(f"Unknown message type: {m_type}")
-        
-        msg = QMessageBox(self)
-        if m_type == "information":
-            msg.setIcon(QMessageBox.Information)
-        elif m_type == "warning":
-            msg.setIcon(QMessageBox.Warning)
-        elif m_type == "critical":
-            msg.setIcon(QMessageBox.Critical)
-        elif m_type == "question":
-            msg.setIcon(QMessageBox.Question)
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        msg.setWindowTitle(title)
-        msg.setText(text)
-        msg.exec()
-
-    def label_notify(self, text: str, m_type: str = "info", delay: int = 5000):
-        color = "red" if m_type == "error" else "black"
-
-        self.ui.statusBarLabel.setStyleSheet(f"color: {color};")
-        self.ui.statusBarLabel.setText(text)
-
-        QTimer.singleShot(delay, lambda: self.ui.statusBarLabel.setText(""))
-
 
 
 class PreferencesWindow(QDialog):
