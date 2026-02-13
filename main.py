@@ -85,8 +85,29 @@ class LibraryManager(QMainWindow):
             self.label_notify("Failed to load added series", "error", 5000)
         self.ui.scanProgressBar.setValue(0)
 
+        #self.process_local_db()
 
     # Adding titles
+    def process_local_db(self):
+        id_list = list(self.get_series_ids())
+        token = self.get_token()
+
+
+
+        self.worker = FullCacheWorker(id_list, token, self)
+        self.worker.start()
+
+    def get_series_ids(self) -> list:
+        tree_widget = self.ui.treeWidget
+        count = self.ui.treeWidget.topLevelItemCount()
+        id_list = set()
+        top_items = [tree_widget.topLevelItem(i) for i in range(tree_widget.topLevelItemCount())]
+        for item in top_items:
+            tvdb_id = str(str(item.text(1).split("\n")[2]).split("TVDB id: ")[-1]).strip()
+            print(tvdb_id)
+            id_list.add(tvdb_id)
+        return list(id_list)
+
     def start_search(self):
         title = self.ui.searchLineEdit.text().strip()
         token = self.get_token()
@@ -103,7 +124,7 @@ class LibraryManager(QMainWindow):
         self.worker = SearchWorker(title, token, self)
         self.worker.result_ready.connect(self.add_result_to_ui)
         self.worker.start()
-        
+
     def add_series(self):
         print("----------------------add_series----------------------")
         token = self.get_token()
@@ -762,7 +783,7 @@ class ScanCacheWorker(QThread):
         
 
     def run(self):
-        print("----------------------search_titles_in_db----------------------")
+        print("----------------------ScanCacheWorker----------------------")
         path = self.cache_path
         
     
@@ -830,6 +851,63 @@ class ScanCacheWorker(QThread):
             
             time.sleep(0.2) 
         self.finished.emit(cache)
+
+class FullCacheWorker(QThread):
+    result_ready = Signal(str, str, object) 
+
+    def __init__(self, id_list: list, token: str, parent_class):
+        super().__init__()
+        self.id_list = id_list
+        self.token = token
+        self.parent_class = parent_class
+
+    def run(self):
+        print("----------------------FullCacheWorker----------------------")
+        headers = {"Authorization": f"Bearer {self.token}"}
+        params = {"meta": "translations,episodes"}
+        db = {}
+        lang = "eng"
+        for tvdb_id in self.id_list:
+            tid = str(tvdb_id).strip()
+            try:
+                r = requests.get(f"https://api4.thetvdb.com/v4/series/{tid}/extended", headers=headers, params=params)
+                # Translated episodes data
+                r2 = requests.get(f"https://api4.thetvdb.com/v4/series/{tid}/episodes/official/{lang}", headers=headers)
+                
+                results = r.json()
+                results2 = r2.json()
+
+                original_eps = results.get("data", {}).get("episodes", [])
+                translated_data = results2.get("data", {})
+                translated_eps = translated_data.get("episodes", [])
+
+                if "data" in results and results["data"]:
+                    db[tvdb_id] = results["data"]
+                    
+                    if "data" in results2 and "episodes" in results2["data"]:
+                        db[tvdb_id]["episodes"] = translated_eps
+
+                        for i in range(len(db[tvdb_id]["episodes"])):
+                            if db[tvdb_id]["episodes"][i].get("name") is None:
+                                if i < len(original_eps):
+                                    db[tvdb_id]["episodes"][i] = original_eps[i]
+                            
+                            current_ep = db[tvdb_id]["episodes"][i]
+                            img_path = current_ep.get("image")
+
+                            if img_path and not str(img_path).startswith("http"):
+                                current_ep["image"] = f'https://artworks.thetvdb.com{img_path}'
+                
+
+            except Exception as e:
+                print(f"Error: {e}")
+        try:
+            with open("data/db.json", "w", encoding="utf-8") as f:
+                    json.dump(db, f, ensure_ascii=False, indent=4)
+            print("Full DB saved")
+        except Exception:
+            print("Failed to save full DB")
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
