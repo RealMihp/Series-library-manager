@@ -229,19 +229,18 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_7.addWidget(self.seasonsLabel)
 
-        self.seasonsListWidget = QListWidget(self.showInfoFrame)
-        self.seasonsListWidget.setObjectName(u"seasonsListWidget")
+        self.seasonsTreeWidget = QTreeWidget(self.showInfoFrame)
+        self.seasonsTreeWidget.setObjectName(u"seasonsTreeWidget")
         sizePolicy3 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         sizePolicy3.setHorizontalStretch(0)
         sizePolicy3.setVerticalStretch(0)
-        sizePolicy3.setHeightForWidth(self.seasonsListWidget.sizePolicy().hasHeightForWidth())
-        self.seasonsListWidget.setSizePolicy(sizePolicy3)
-        self.seasonsListWidget.setMaximumSize(QSize(16777215, 200))
+        sizePolicy3.setHeightForWidth(self.seasonsTreeWidget.sizePolicy().hasHeightForWidth())
+        self.seasonsTreeWidget.setSizePolicy(sizePolicy3)
+        self.seasonsTreeWidget.setMaximumSize(QSize(16777215, 200))
 
-        self.verticalLayout_7.addWidget(self.seasonsListWidget)
+        self.verticalLayout_7.addWidget(self.seasonsTreeWidget)
 
         self.verticalLayout_7.setStretch(1, 1)
-        self.verticalLayout_7.setStretch(3, 1)
         self.splitter.addWidget(self.showInfoFrame)
 
         self.verticalLayout_5.addWidget(self.splitter)
@@ -350,6 +349,9 @@ class Ui_MainWindow(object):
         self.statusLabel.setText("")
         self.yearLabel.setText("")
         self.seasonsLabel.setText(QCoreApplication.translate("MainWindow", u"Seasons", None))
+        ___qtreewidgetitem2 = self.seasonsTreeWidget.headerItem()
+        ___qtreewidgetitem2.setText(1, QCoreApplication.translate("MainWindow", u"Info", None));
+        ___qtreewidgetitem2.setText(0, QCoreApplication.translate("MainWindow", u"Season", None));
         self.scanLabel.setText(QCoreApplication.translate("MainWindow", u"Scan", None))
         self.statusBarLabel.setText("")
         self.menuFile.setTitle(QCoreApplication.translate("MainWindow", u"File", None))

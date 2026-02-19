@@ -279,7 +279,7 @@
        <property name="frameShadow">
         <enum>QFrame::Shadow::Raised</enum>
        </property>
-       <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,1,0,1">
+       <layout class="QVBoxLayout" name="verticalLayout_7" stretch="0,1,0,0">
         <property name="spacing">
          <number>3</number>
         </property>
@@ -377,7 +377,7 @@
          </widget>
         </item>
         <item>
-         <widget class="QListWidget" name="seasonsListWidget">
+         <widget class="QTreeWidget" name="seasonsTreeWidget">
           <property name="sizePolicy">
            <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
             <horstretch>0</horstretch>
@@ -390,6 +390,16 @@
             <height>200</height>
            </size>
           </property>
+          <column>
+           <property name="text">
+            <string>Season</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>Info</string>
+           </property>
+          </column>
          </widget>
         </item>
        </layout>

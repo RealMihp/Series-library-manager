@@ -213,6 +213,7 @@ class LibraryManager(QMainWindow):
             with open("data/db.json", "w", encoding="utf-8") as f:
                     json.dump(db, f, ensure_ascii=False, indent=4)
             print("Full DB saved")
+            self.load_all_assets()
         except Exception:
             print("Failed to save full DB")
 
@@ -366,7 +367,7 @@ class LibraryManager(QMainWindow):
             item = QTreeWidgetItem([name])
 
             url = title.get("image")
-            pixmap = self.load_poster(url, title_id)
+            pixmap = self.load_poster(url)
             
             if pixmap:
                 item.setIcon(0, QIcon(pixmap))
@@ -391,9 +392,14 @@ class LibraryManager(QMainWindow):
             QApplication.processEvents()
                     
 
-    def load_poster(self, link: str, tvdb_id: int | str) -> QPixmap | None:
+    def load_poster(self, link: str) -> QPixmap | None:
         print("----------------------load_poster----------------------")
-        file_path = os.path.join(self.posters_path, f"{tvdb_id}.jpg")
+        file_name = str(link.split("/")[-1])
+        tvdb_id = str(file_name.split("-")[0])
+        folder_path = os.path.join(self.posters_path, f"{tvdb_id}")
+        file_path = os.path.join(folder_path, file_name)
+
+        os.makedirs(folder_path, exist_ok=True)
 
         if os.path.exists(file_path):
             return QPixmap(file_path)
@@ -474,6 +480,71 @@ class LibraryManager(QMainWindow):
         self.ui.yearLabel.setText(year)
         self.ui.statusLabel.setText(status)
         # self.ui.idLabel.setText(f"TVDB id: {tvdb_id}")
+
+        # Seasons
+        self.ui.seasonsTreeWidget.setColumnCount(2)
+        self.ui.seasonsTreeWidget.setHeaderLabels(["Title", "Info"])
+        self.ui.seasonsTreeWidget.setIconSize(QSize(96, 96))
+        self.ui.seasonsTreeWidget.setWordWrap(True)
+
+        try:
+                with open(self.db_path, "r", encoding="utf-8") as f:
+                    db = json.load(f)
+        except json.JSONDecodeError:
+            print("DB file is corrupted")
+        numbers = set()
+        for title in db:
+            if title == tvdb_id:
+                seasons = db.get(title).get("seasons")
+                for season in seasons:
+                    number = season.get("number")
+                    
+                    numbers.add(number)
+                    max_seasons = max(numbers)
+                print(max_seasons)
+
+        item = QTreeWidgetItem(max_seasons)
+        self.ui.seasonsTreeWidget.addTopLevelItem(item)
+
+    def load_all_assets(self):
+        links = set()
+
+        def find_links(data, current_tvdb_id = None):
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    new_id = key if str(key).isdigit() else current_tvdb_id
+                    find_links(value, new_id)
+            elif isinstance(data, list):
+                for item in data:
+                    find_links(item, current_tvdb_id)
+            elif isinstance(data, str):
+                if any(data.endswith(ext) for ext in [".jpg", ".png", ".jpeg"]):
+                    if current_tvdb_id:
+                        links.add((current_tvdb_id, data))
+                    else:
+                        links.add(("other", data))
+                
+            
+
+        try:
+            with open(self.db_path, "r", encoding="utf-8") as f:
+                db = json.load(f)
+            
+            find_links(db)
+
+            if links:
+                print(f"Found assets: {len(links)}")
+                self.load_assets_thread = LoadAssetsWorker(links, self)
+                #self.load_assets_thread.result_ready.connect()
+                self.load_assets_thread.start()
+            else:
+                print("Assets not found")
+
+        except json.JSONDecodeError:
+            print("DB file is corrupted")
+        except Exception as e:
+            print(f"Error: {e}")
+
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -776,7 +847,7 @@ class SearchWorker(QThread):
                     tvdb_id = result.get("id", "").strip("series-")
                     url = result.get("image_url")
                     
-                    pixmap = self.parent_class.load_poster(url, tvdb_id)
+                    pixmap = self.parent_class.load_poster(url)
                     
                     status = result.get("status", "Unknown")
                     year = result.get("year", "N/A")
@@ -968,6 +1039,46 @@ class FullCacheWorker(QThread):
         self.result_ready.emit(db)
         self.finished.emit()
 
+class LoadAssetsWorker(QThread):
+    result_ready = Signal(str) 
+
+    def __init__(self, links: list, parent_class):
+        super().__init__()
+        self.links = links
+        self.parent_class = parent_class
+
+    def run(self):
+        print("----------------------LoadAssetsWorker----------------------")
+
+        for link in self.links:
+            full_url = link[1] 
+            
+            file_name_only = full_url.split("/")[-1]
+            tvdb_id = link[0]
+            folder_path = os.path.join(self.parent_class.posters_path, f"{tvdb_id}")
+            file_path = os.path.join(folder_path, file_name_only)
+
+            os.makedirs(folder_path, exist_ok=True)
+
+            if os.path.exists(file_path):
+                self.result_ready.emit(file_path)
+                continue
+
+            try:
+                response = requests.get(full_url, timeout=10)
+                if response.status_code == 200:
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
+                    
+                    
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(response.content)
+                    self.result_ready.emit(file_path)
+            except Exception as e:
+                print(f"Failed to save picture: {e}")
+
+        self.finished.emit()
+        print("Finished loading assets")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
