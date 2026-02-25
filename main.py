@@ -5,7 +5,7 @@ import re
 import json
 import datetime
 from PySide6.QtWidgets import (QApplication, QMainWindow, QFileDialog, QMenu, QTreeWidget, QTreeWidgetItem, 
-                               QStyledItemDelegate, QHeaderView, QListWidget, QPushButton, QMessageBox)
+                               QStyledItemDelegate, QHeaderView, QListWidget, QPushButton, QMessageBox, QProgressDialog)
 from PySide6.QtGui import QPixmap, QDesktopServices, QIcon, QColor
 from ui.ui_main import Ui_MainWindow
 from PySide6.QtCore import Qt, QUrl, QSize, QByteArray, QThread, Signal, QTimer
@@ -214,8 +214,8 @@ class LibraryManager(QMainWindow):
                     json.dump(db, f, ensure_ascii=False, indent=4)
             print("Full DB saved")
             self.load_all_assets()
-        except Exception:
-            print("Failed to save full DB")
+        except Exception as e:
+            print("Failed to save full DB:", e)
 
 
     def scan_library(self) -> list | None:
@@ -506,7 +506,7 @@ class LibraryManager(QMainWindow):
         item = QTreeWidgetItem(max_seasons)
         self.ui.seasonsTreeWidget.addTopLevelItem(item)
 
-    def load_all_assets(self):
+    def load_all_assets(self):  
         links = set()
 
         def find_links(data, current_tvdb_id = None):
@@ -535,8 +535,16 @@ class LibraryManager(QMainWindow):
             if links:
                 print(f"Found assets: {len(links)}")
                 self.load_assets_thread = LoadAssetsWorker(links, self)
+                self.progress = QProgressDialog("Loading assets... Please wait", "Cancel", 0, len(links), self)
+                self.progress.setWindowTitle("Loading assets")
+                #self.progress.setWindowModality(Qt.WindowModal)
+                self.progress.setMinimumDuration(0)
+                self.progress.setValue(0)
+                self.progress.canceled.connect(self.load_assets_thread.terminate)
+                self.load_assets_thread.progress_changed.connect(self.progress.setValue)
                 #self.load_assets_thread.result_ready.connect()
                 self.load_assets_thread.start()
+                self.load_assets_thread.finished.connect(self.progress.close)
             else:
                 print("Assets not found")
 
@@ -1040,7 +1048,8 @@ class FullCacheWorker(QThread):
         self.finished.emit()
 
 class LoadAssetsWorker(QThread):
-    result_ready = Signal(str) 
+    result_ready = Signal(str)
+    progress_changed = Signal(int)
 
     def __init__(self, links: list, parent_class):
         super().__init__()
@@ -1050,7 +1059,7 @@ class LoadAssetsWorker(QThread):
     def run(self):
         print("----------------------LoadAssetsWorker----------------------")
 
-        for link in self.links:
+        for i, link in enumerate(self.links):
             full_url = link[1] 
             
             file_name_only = full_url.split("/")[-1]
@@ -1074,6 +1083,7 @@ class LoadAssetsWorker(QThread):
                     pixmap = QPixmap()
                     pixmap.loadFromData(response.content)
                     self.result_ready.emit(file_path)
+                    self.progress_changed.emit(i + 1)
             except Exception as e:
                 print(f"Failed to save picture: {e}")
 
