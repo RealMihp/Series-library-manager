@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import os
 import time
@@ -483,28 +484,58 @@ class LibraryManager(QMainWindow):
 
         # Seasons
         self.ui.seasonsTreeWidget.setColumnCount(2)
-        self.ui.seasonsTreeWidget.setHeaderLabels(["Title", "Info"])
-        self.ui.seasonsTreeWidget.setIconSize(QSize(96, 96))
+        self.ui.seasonsTreeWidget.setHeaderLabels(["Season", "Info"])
+        self.ui.seasonsTreeWidget.setIconSize(QSize(80, 80))
         self.ui.seasonsTreeWidget.setWordWrap(True)
+        self.ui.seasonsTreeWidget.clear()
+        header = self.ui.seasonsTreeWidget.header()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
 
         try:
-                with open(self.db_path, "r", encoding="utf-8") as f:
-                    db = json.load(f)
-        except json.JSONDecodeError:
-            print("DB file is corrupted")
-        numbers = set()
-        for title in db:
-            if title == tvdb_id:
-                seasons = db.get(title).get("seasons")
-                for season in seasons:
-                    number = season.get("number")
-                    
-                    numbers.add(number)
-                    max_seasons = max(numbers)
-                print(max_seasons)
+            with open(self.db_path, "r", encoding="utf-8") as f:
+                db = json.load(f)
+        except Exception as e:
+            print(f"Error loading DB: {e}")
+            return
 
-        item = QTreeWidgetItem(max_seasons)
-        self.ui.seasonsTreeWidget.addTopLevelItem(item)
+        series_data = db.get(str(tvdb_id))
+        if not series_data:
+            print("Series not found")
+            return
+
+        seasons = series_data.get("seasons", [])
+
+        numbers = [s.get("number") for s in seasons if s.get("number") is not None]
+        if not numbers:
+            print("No seasons found")
+            return
+
+        max_seasons_count = max(numbers)
+        print(f"Max season: {max_seasons_count}")
+
+        for i in range(max_seasons_count + 1):
+            item = QTreeWidgetItem(self.ui.seasonsTreeWidget)
+            if i == 0:
+                item.setText(0, "Specials")
+            else:
+                item.setText(0, f"Season {i}")
+            current_season_episodes = [ep for ep in series_data.get("episodes", []) if ep["seasonNumber"] == i]
+            season_info = next((s for s in seasons if s.get("number") == i), None)
+            
+            if season_info:
+                print(season_info)
+                item.setText(1, f"Episodes: {len(current_season_episodes)}")
+                poster_url = season_info.get('image')
+                if poster_url:
+                    pixmap = self.load_poster(poster_url)
+            
+                    if pixmap:
+                        item.setIcon(0, QIcon(pixmap))
+                    else:
+                        item.setIcon(0, self.create_placeholder_icon())
+            else:
+                item.setText(1, "No data")
 
     def load_all_assets(self):  
         links = set()
@@ -1055,39 +1086,46 @@ class LoadAssetsWorker(QThread):
         super().__init__()
         self.links = links
         self.parent_class = parent_class
+        self.current_progress = 0
 
     def run(self):
         print("----------------------LoadAssetsWorker----------------------")
+        with requests.Session() as session:
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
 
-        for i, link in enumerate(self.links):
-            full_url = link[1] 
+            def download_one(link):
+                try:
+                    tvdb_id, full_url = link
+                    file_name_only = full_url.split("/")[-1]
+                    folder_path = os.path.join(self.parent_class.posters_path, str(tvdb_id))
+                    file_path = os.path.join(folder_path, file_name_only)
+
+                    os.makedirs(folder_path, exist_ok=True)
+
+                    if os.path.exists(file_path):
+                        return file_path
+
+                    response = session.get(full_url, timeout=10)
+                    if response.status_code == 200:
+                        with open(file_path, "wb") as f:
+                            f.write(response.content)
+                        return file_path
+                except Exception as e:
+                    print(f"Error downloading {link}: {e}")
+                return None
             
-            file_name_only = full_url.split("/")[-1]
-            tvdb_id = link[0]
-            folder_path = os.path.join(self.parent_class.posters_path, f"{tvdb_id}")
-            file_path = os.path.join(folder_path, file_name_only)
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                results = executor.map(download_one, self.links)
 
-            os.makedirs(folder_path, exist_ok=True)
+                for result in results:
+                    self.current_progress += 1
+                    if result:
+                        self.result_ready.emit(result)
 
-            if os.path.exists(file_path):
-                self.result_ready.emit(file_path)
-                continue
+                    self.progress_changed.emit(self.current_progress)
 
-            try:
-                response = requests.get(full_url, timeout=10)
-                if response.status_code == 200:
-                    with open(file_path, "wb") as f:
-                        f.write(response.content)
-                    
-                    
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(response.content)
-                    self.result_ready.emit(file_path)
-                    self.progress_changed.emit(i + 1)
-            except Exception as e:
-                print(f"Failed to save picture: {e}")
-
-        self.finished.emit()
         print("Finished loading assets")
 
 if __name__ == "__main__":
