@@ -242,7 +242,8 @@ class LibraryManager(QMainWindow):
                             "v0", "v1", "v2", "v3",
                             "preview", "promo", "commercial", "teaser", "opening", "ending", "op", "ed",
                             "shinkai", "miyazaki", "makoto", "ghibli",
-                            "anidust", "dreamers", "shikimori", "jut su", "yummyani", "smotret-anime", "sa4ko aka kiyoso", "kbm team"}
+                            "anidust", "dreamers", "shikimori", "jut su", "yummyani", "smotret-anime", "sa4ko aka kiyoso", "kbm team", "sound vol", "sps", "booklet", "specialbook",
+                            "CD"}
 
             STRICT_GARBAGE = {"sub", "subs", "sound", "font", "fonts", "надписи", "sign", "signs", 
                             "bonus", "nc", "nced", "ncop", "extra", "preview", "scans", "scan", 
@@ -252,7 +253,7 @@ class LibraryManager(QMainWindow):
                             "docs", "info", "read me", "specials", "omake", "shorts", "movies", "sp", "clips", "trailer",
                             "sample", "metadata", "extrafiles", "thumbnails", "temp", "cache",
                             "subtitles", "subs_rus", "subs_eng", "scripts", "ass", "srt",
-                            "vol", "volume", "folder", "images", "pics", "screenshots", "cd"}
+                            "vol", "volume", "folder", "images", "pics", "screenshots", "cd", }
             
 
 
@@ -395,30 +396,33 @@ class LibraryManager(QMainWindow):
 
     def load_poster(self, link: str) -> QPixmap | None:
         print("----------------------load_poster----------------------")
-        file_name = str(link.split("/")[-1])
-        tvdb_id = str(file_name.split("-")[0])
-        folder_path = os.path.join(self.posters_path, f"{tvdb_id}")
-        file_path = os.path.join(folder_path, file_name)
-
-        os.makedirs(folder_path, exist_ok=True)
-
-        if os.path.exists(file_path):
-            return QPixmap(file_path)
-
         try:
-            response = requests.get(link, timeout=10)
-            if response.status_code == 200:
-                with open(file_path, "wb") as f:
-                    f.write(response.content)
-                
-                
-                pixmap = QPixmap()
-                pixmap.loadFromData(response.content)
-                return pixmap
+            file_name = str(link.split("/")[-1])
+            tvdb_id = str(file_name.split("-")[0])
+            folder_path = os.path.join(self.posters_path, f"{tvdb_id}")
+            file_path = os.path.join(folder_path, file_name)
+
+            os.makedirs(folder_path, exist_ok=True)
+
+            if os.path.exists(file_path):
+                return QPixmap(file_path)
+
+            try:
+                response = requests.get(link, timeout=10)
+                if response.status_code == 200:
+                    with open(file_path, "wb") as f:
+                        f.write(response.content)
+                    
+                    
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(response.content)
+                    return pixmap
+            except Exception as e:
+                print(f"Failed to save picture: {e}")
+            
+            return None
         except Exception as e:
-            print(f"Failed to save picture: {e}")
-        
-        return None
+            print(f"Failed to load poster: {e}")
 
 
             
